@@ -1,0 +1,184 @@
+## Milk Intelligence Platform — FastAPI Service
+
+This project provides real-time milk quality inference, SHAP explainability, pricing, and supplier/route/batch analytics via a unified FastAPI backend.
+
+## Start the Server
+
+```bash
+python -m uvicorn src.main:app --reload
+```
+
+Server runs at:
+
+```
+http://127.0.0.1:8000
+```
+
+API Docs:
+
+* Swagger: `http://127.0.0.1:8000/docs`
+* ReDoc: `http://127.0.0.1:8000/redoc`
+
+---
+
+## `/full` Endpoint
+
+This endpoint returns model predictions, SHAP explainability, quality scoring, pricing, and full analytics for a milk sample.
+
+### Sample Response
+
+```json
+{
+  "sample": {
+    "fat_predicted": 4.138,
+    "total_solids_predicted": 12.041,
+    "snf": 7.903,
+    "adulteration_risk": 100.0,
+    "is_adulterated": 1,
+    "supplier_data": {
+      "supplier_id": "SUP-104",
+      "route_id": "R-3",
+      "collection_center": "CC-East",
+      "sample_id": "126927b9-8007-46d0-9afc-dfeb8bbb1701",
+      "timestamp": "2025-11-16T12:08:59.673232"
+    },
+    "metadata": {
+      "Breed": "Hol Fri",
+      "Date_of_sampling": "20/08/2013",
+      "Parity": 5.0,
+      "Milking_Time": 1.0,
+      "DaysInMilk": 197.0,
+      "Protein_content": 3.35,
+      "Lactose_content": 4.37,
+      "Urea_Content": 50.7,
+      "Casein_micelle_size": 158.7,
+      "L": 81.43,
+      "a": -4.26,
+      "b": 7.96
+    }
+  },
+  "shap": {
+    "fat": {
+      "top_features": [
+        {"wavelength": "1238", "impact": 0.0182},
+        {"wavelength": "1242", "impact": 0.0171},
+        {"wavelength": "1227", "impact": 0.0158},
+        {"wavelength": "1246", "impact": 0.0149},
+        {"wavelength": "1234", "impact": 0.0139}
+      ]
+    },
+    "ts": {
+      "top_features": [
+        {"wavelength": "1739", "impact": 0.0225},
+        {"wavelength": "1743", "impact": 0.0211},
+        {"wavelength": "1736", "impact": 0.0186},
+        {"wavelength": "1747", "impact": 0.0178},
+        {"wavelength": "1751", "impact": 0.0170}
+      ]
+    }
+  },
+  "quality": {
+    "traffic_cards": {
+      "fat": "green",
+      "snf": "yellow",
+      "ts": "green",
+      "adulteration": "red"
+    },
+    "price": {
+      "base_price": 33,
+      "quality_score": 0,
+      "final_price": 16.5
+    },
+    "adulteration_recomputed": {
+      "risk_percent": 100.0,
+      "label": "HIGH_RISK"
+    }
+  },
+  "analytics": {
+    "sample": {
+      "sample_id": "126927b9-8007-46d0-9afc-dfeb8bbb1701",
+      "timestamp": "2025-11-16T12:08:59.673232",
+      "score": 48.52,
+      "fat": 4.138,
+      "snf": 7.903,
+      "ts": 12.041,
+      "adulteration_risk": 100.0,
+      "is_adulterated": 1,
+      "price": 16.5
+    },
+    "supplier": {
+      "supplier_id": "SUP-104",
+      "avg_fat": 3.987,
+      "avg_snf": 8.022,
+      "avg_ts": 11.842,
+      "stability": 0.3112,
+      "persistence": 0.742
+    },
+    "route": {
+      "route_id": "R-3",
+      "avg_fat": 4.021,
+      "avg_snf": 8.011,
+      "avg_ts": 12.101,
+      "stability": 0.288,
+      "persistence": 0.701
+    },
+    "batch": {
+      "batch_id": 12,
+      "avg_fat": 4.102,
+      "avg_snf": 7.950,
+      "avg_ts": 12.020,
+      "stability": 0.210,
+      "persistence": 0.690,
+      "adulteration_freq": 8.33
+    },
+    "global": {
+      "global_quality_index": 67.41
+    }
+  },
+  "timestamp": "2025-11-16T14:22:18.900123"
+}
+```
+
+---
+
+## Response Sections
+
+### 1. `sample`
+
+Contains predictions:
+
+* fat
+* total solids
+* snf
+* adulteration risk
+* supplier metadata
+* sampling metadata
+
+### 2. `shap`
+
+Top influencing wavelengths for:
+
+* fat model
+* ts model
+
+### 3. `quality`
+
+* traffic card colors
+* quality score
+* final price
+* adulteration label
+
+### 4. `analytics`
+
+Contains:
+
+* sample analytics
+* supplier analytics
+* route analytics
+* batch analytics
+* global quality score
+
+### 5. `timestamp`
+
+Processing timestamp.
+

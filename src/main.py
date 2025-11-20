@@ -14,6 +14,8 @@ from src.routers.price import router as price_router
 from src.routers.test_loader import router as test_router
 from src.routers.analytics import router as analytics_router
 from src.routers.full import router as full_router
+from src.routers.milk_type import router as milk_type_router
+from src.routers.alert import router as alert_router
 
 # --- services ---
 from src.services.shap_service import (
@@ -35,11 +37,16 @@ NODE_URL = NODE_ENDPOINT.rstrip("/") + "/full"
 POST_TIMEOUT = 6
 POST_RETRIES = 2
 
-MQTT_BROKER = "408931733e044363a78260011ca8d3db.s1.eu.hivemq.cloud"
-MQTT_PORT = 8883
+
+# ===================================================================
+# NEW MQTT CONFIG — Azure Broker
+# ===================================================================
+MQTT_BROKER = "kdn-ai-mqtt-broker.eastus2.azurecontainer.io"
+MQTT_PORT = 1883                    # non-TLS port
 MQTT_TOPIC = "milk/spectra/data"
-MQTT_USERNAME = "raspberry"
-MQTT_PASSWORD = "ZXCvbnm0@"
+MQTT_USERNAME = "mqttadmin"
+MQTT_PASSWORD = "mymqttserver"
+
 
 
 # ===================================================================
@@ -182,7 +189,12 @@ def on_message(client, userdata, msg):
     except Exception as e:
         payload["traffic_cards_error"] = str(e)
 
-    # --- adulteration recompute ---
+    try:
+        from src.services.milk_type_service import classify_milk_from_payload
+        payload["milk_type"] = classify_milk_from_payload(payload)
+    except Exception as e:
+        payload["milk_type_error"] = str(e)
+
     try:
         payload["adulteration_recomputed"] = recompute_adulteration_risk(payload)
     except Exception as e:
@@ -194,7 +206,26 @@ def on_message(client, userdata, msg):
     except Exception as e:
         payload["price_error"] = str(e)
 
-    # --- save into history.csv ---
+    # =============================================================
+    # ALERT ENGINE — RUN AFTER ENRICHMENT
+    # =============================================================
+    try:
+        from src.services.alert_service import run_alert_engine
+        alerts_triggered = run_alert_engine(payload)
+
+        if alerts_triggered:
+            print(f"⚠️ Alerts triggered: {len(alerts_triggered)}")
+        else:
+            print("✔️ No alerts triggered for this sample")
+
+    except Exception as e:
+        print("⚠️ Alert engine failed:", e)
+
+
+
+    # =============================================================
+    # SAVE TO HISTORY
+    # =============================================================
     try:
         entry = append_sample(payload)
         print("💾 Saved in history:", entry.get("entry_id"))
@@ -202,7 +233,7 @@ def on_message(client, userdata, msg):
         print("⚠️ Failed saving history:", e)
 
     # =============================================================
-    # CREATE FULL PAYLOAD (same as /full) AND POST TO NODE
+    # POST TO NODE
     # =============================================================
     full_payload = _build_full_response(app)
 
@@ -216,7 +247,7 @@ def on_message(client, userdata, msg):
 
     if full_payload:
         if sample_id != app.last_pushed_sample_id:
-            print(f"📤 Posting full payload to Node (sample_id={sample_id}) → {NODE_URL}")
+            print(f"📤 Posting full payload → {NODE_URL}")
             res = _post_to_node(full_payload)
             # print(("full payloasd:", full_payload))
 
@@ -256,7 +287,9 @@ def startup_event():
 
     client = mqtt.Client()
     client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-    client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS)
+
+    # No TLS because port 1883 is plain MQTT
+    # client.tls_set()
 
     client.on_connect = on_connect
     client.on_message = on_message
@@ -268,7 +301,7 @@ def startup_event():
         print("❌ MQTT connection FAILED:", e)
 
     client.loop_start()
-    print("📡 MQTT listener started\n")
+
 
 
 # ===================================================================
@@ -280,6 +313,8 @@ app.include_router(price_router)
 app.include_router(test_router)
 app.include_router(analytics_router)
 app.include_router(full_router)
+app.include_router(milk_type_router)
+app.include_router(alert_router)
 
 
 # ===================================================================

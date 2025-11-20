@@ -3,25 +3,101 @@ import os
 import uuid
 import datetime
 import numpy as np
+import psycopg2
 
 HISTORY_FILE = "data/history.csv"
 
+# ======================================================
+# PostgreSQL CONNECTION DETAILS
+# ======================================================
+PG_CONFIG = {
+    "host": "kdnai-partnersquad-psql-dev-eastus2.postgres.database.azure.com",
+    "port": 5432,
+    "user": "psqladmin",
+    "password": "Myserver@123",
+    "database": "postgres",
+    "sslmode": "require"
+}
 
-# ------------------------------------------------------
-# Create directory + recreate file if corrupted or empty
-# ------------------------------------------------------
+
+# ======================================================
+# Create PG connection
+# ======================================================
+def _get_pg_conn():
+    try:
+        conn = psycopg2.connect(**PG_CONFIG)
+        return conn
+    except Exception as e:
+        print("❌ PostgreSQL connection error:", e)
+        return None
+
+
+# ======================================================
+# Save history row to PostgreSQL
+# ======================================================
+def _save_history_to_db(entry):
+    conn = _get_pg_conn()
+    if not conn:
+        print("⚠️ Skipping DB insert (no connection)")
+        return
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO quality_history (
+                    entry_id, timestamp, sample_id,
+                    supplier_id, route_id, collection_center,
+
+                    fat, ts, snf,
+                    adulteration_risk, is_adulterated, price,
+
+                    batch_id, sample_score,
+
+                    supplier_avg_fat, supplier_avg_snf, supplier_avg_ts,
+                    supplier_stability, supplier_persistence,
+
+                    route_score, batch_avg_score, batch_adulteration_freq,
+                    global_quality_index
+                )
+                VALUES (
+                    %(entry_id)s, %(timestamp)s, %(sample_id)s,
+                    %(supplier_id)s, %(route_id)s, %(collection_center)s,
+
+                    %(fat)s, %(ts)s, %(snf)s,
+                    %(adulteration_risk)s, %(is_adulterated)s, %(price)s,
+
+                    %(batch_id)s, %(sample_score)s,
+
+                    %(supplier_avg_fat)s, %(supplier_avg_snf)s, %(supplier_avg_ts)s,
+                    %(supplier_stability)s, %(supplier_persistence)s,
+
+                    %(route_score)s, %(batch_avg_score)s, %(batch_adulteration_freq)s,
+                    %(global_quality_index)s
+                )
+                """,
+                entry
+            )
+            conn.commit()
+
+    except Exception as e:
+        print("❌ Failed inserting history row into DB:", e)
+    finally:
+        conn.close()
+
+
+# ======================================================
+# Ensure CSV exists
+# ======================================================
 def _ensure_history_exists():
-    # Ensure directory exists
     dir_name = os.path.dirname(HISTORY_FILE)
     if dir_name and not os.path.exists(dir_name):
         os.makedirs(dir_name, exist_ok=True)
 
-    # If file missing OR empty OR unreadable → recreate
     if (not os.path.exists(HISTORY_FILE)) or os.path.getsize(HISTORY_FILE) == 0:
         _create_empty_history()
         return
 
-    # Try reading — if fails, recreate
     try:
         pd.read_csv(HISTORY_FILE)
     except:
@@ -29,57 +105,43 @@ def _ensure_history_exists():
 
 
 def _create_empty_history():
-    """Internal function to create a clean history file."""
     df = pd.DataFrame(columns=[
         "entry_id", "timestamp", "sample_id",
         "supplier_id", "route_id", "collection_center",
 
-        # quality
         "fat", "ts", "snf",
-        "adulteration_risk", "is_adulterated",
-        "price",
+        "adulteration_risk", "is_adulterated", "price",
 
-        # analytics
-        "batch_id",
-        "sample_score",
+        "batch_id", "sample_score",
 
-        # supplier analytics
         "supplier_avg_fat", "supplier_avg_snf", "supplier_avg_ts",
         "supplier_stability", "supplier_persistence",
 
-        # route analytics
         "route_score",
-
-        # batch analytics
         "batch_avg_score", "batch_adulteration_freq",
 
-        # global analytics
         "global_quality_index"
     ])
     df.to_csv(HISTORY_FILE, index=False)
 
 
-# ------------------------------------------------------
-# Load DF safely
-# ------------------------------------------------------
+# ======================================================
+# CSV loader
+# ======================================================
 def load_history_df():
-    """Load full history CSV as DataFrame. Auto-fixes file if corrupted."""
     _ensure_history_exists()
     try:
-        df = pd.read_csv(HISTORY_FILE)
-        return df
+        return pd.read_csv(HISTORY_FILE)
     except:
-        # If read fails, rebuild file
         _create_empty_history()
         return pd.read_csv(HISTORY_FILE)
 
 
-# ------------------------------------------------------
-# Scoring logic
-# ------------------------------------------------------
+# ======================================================
+# Computing sample score
+# ======================================================
 def compute_sample_score(fat, snf, ts, adulteration_risk):
-    """Final score between 0–100."""
-    if fat is None or snf is None or ts is None or adulteration_risk is None:
+    if None in (fat, snf, ts, adulteration_risk):
         return None
 
     score = (
@@ -92,9 +154,9 @@ def compute_sample_score(fat, snf, ts, adulteration_risk):
     return round(score, 2)
 
 
-# ------------------------------------------------------
+# ======================================================
 # Supplier metrics
-# ------------------------------------------------------
+# ======================================================
 def compute_supplier_metrics(df_supplier):
     if df_supplier.empty:
         return (0, 0, 0, 0, 1)
@@ -119,49 +181,34 @@ def compute_supplier_metrics(df_supplier):
     )
 
 
-# ------------------------------------------------------
-# Route score
-# ------------------------------------------------------
+# ======================================================
+# Route + Batch + Global metrics
+# ======================================================
 def compute_route_score(df_route):
     return round(df_route["sample_score"].mean(), 2) if not df_route.empty else 0
 
 
-# ------------------------------------------------------
-# Batch analytics
-# ------------------------------------------------------
 def compute_batch_metrics(df_batch):
     if df_batch.empty:
         return 0, 0
+    return (
+        round(df_batch["sample_score"].mean(), 2),
+        round(df_batch["is_adulterated"].mean() * 100, 2)
+    )
 
-    avg_score = df_batch["sample_score"].mean()
-    adulteration_freq = df_batch["is_adulterated"].mean() * 100
 
-    return round(avg_score, 2), round(adulteration_freq, 2)
-
-
-# ------------------------------------------------------
-# Global analytics
-# ------------------------------------------------------
 def compute_global_quality_index(df):
     return round(df["sample_score"].mean(), 2) if not df.empty else 0
 
 
-# ------------------------------------------------------
-# Append sample
-# ------------------------------------------------------
+# ======================================================
+# MAIN: append_sample (writes CSV + DB)
+# ======================================================
 def append_sample(payload):
-
     _ensure_history_exists()
     df = load_history_df()
-    if df is None:
-        df = pd.DataFrame()
 
-    # ---------------------------------------------------------
-    # Extract inference block
-    # ---------------------------------------------------------
     infer = payload.get("inference", {})
-
-    # -------- Supplier Data Inside Inference --------
     sd = infer.get("supplier_data", {})
 
     sample_id = sd.get("sample_id", str(uuid.uuid4()))
@@ -169,60 +216,29 @@ def append_sample(payload):
     route_id = sd.get("route_id", "UNKNOWN_ROUTE")
     collection_center = sd.get("collection_center", "UNKNOWN_CENTER")
 
-    # ---------------------------------------------------------
-    # Core predicted fields (inside inference)
-    # ---------------------------------------------------------
     fat = infer.get("fat_predicted")
     ts = infer.get("total_solids_predicted")
     snf = infer.get("snf")
     adulteration_risk = infer.get("adulteration_risk")
     is_adulterated = infer.get("is_adulterated")
 
-    # pricing (added by FastAPI pipeline)
     final_price = payload.get("price", {}).get("final_price")
 
-    # ---------------------------------------------------------
-    # Compute sample score
-    # ---------------------------------------------------------
     sample_score = compute_sample_score(fat, snf, ts, adulteration_risk)
 
-    # ---------------------------------------------------------
-    # Batch assignment
-    # ---------------------------------------------------------
-    batch_id = len(df) // 20 if len(df) > 0 else 0
+    batch_id = len(df) // 20 if len(df) else 0
 
-    # ---------------------------------------------------------
-    # Supplier analytics
-    # ---------------------------------------------------------
     df_supplier = df[df["supplier_id"] == supplier_id] if len(df) else pd.DataFrame()
-    (
-        supplier_avg_fat,
-        supplier_avg_snf,
-        supplier_avg_ts,
-        supplier_stability,
-        supplier_persistence
-    ) = compute_supplier_metrics(df_supplier)
+    supplier_avg_fat, supplier_avg_snf, supplier_avg_ts, supplier_stability, supplier_persistence = compute_supplier_metrics(df_supplier)
 
-    # ---------------------------------------------------------
-    # Route analytics
-    # ---------------------------------------------------------
     df_route = df[df["route_id"] == route_id] if len(df) else pd.DataFrame()
     route_score = compute_route_score(df_route)
 
-    # ---------------------------------------------------------
-    # Batch analytics
-    # ---------------------------------------------------------
     df_batch = df[df["batch_id"] == batch_id] if len(df) else pd.DataFrame()
     batch_avg_score, batch_adulteration_freq = compute_batch_metrics(df_batch)
 
-    # ---------------------------------------------------------
-    # Global analytics
-    # ---------------------------------------------------------
     global_quality_index = compute_global_quality_index(df) if len(df) else 0
 
-    # ---------------------------------------------------------
-    # Build entry row
-    # ---------------------------------------------------------
     entry = {
         "entry_id": str(uuid.uuid4()),
         "timestamp": datetime.datetime.now().isoformat(),
@@ -243,28 +259,25 @@ def append_sample(payload):
         "batch_id": batch_id,
         "sample_score": sample_score,
 
-        # supplier analytics
         "supplier_avg_fat": supplier_avg_fat,
         "supplier_avg_snf": supplier_avg_snf,
         "supplier_avg_ts": supplier_avg_ts,
         "supplier_stability": supplier_stability,
         "supplier_persistence": supplier_persistence,
 
-        # route analytics
         "route_score": route_score,
 
-        # batch analytics
         "batch_avg_score": batch_avg_score,
         "batch_adulteration_freq": batch_adulteration_freq,
 
-        # global analytics
         "global_quality_index": global_quality_index,
     }
 
-    # ---------------------------------------------------------
-    # Save history
-    # ---------------------------------------------------------
+    # Save to CSV
     df = pd.concat([df, pd.DataFrame([entry])], ignore_index=True)
     df.to_csv(HISTORY_FILE, index=False)
+
+    # Save to PostgreSQL
+    _save_history_to_db(entry)
 
     return entry

@@ -1,6 +1,12 @@
 import pandas as pd
 from src.utils.history_utils import HISTORY_FILE
+import random
 
+INDIAN_MILK_BRANDS = [
+    "Amul", "Nandini", "Aavin", "Mother Dairy", "Gokul", "Warana", 
+    "Milma", "Vijaya", "Heritage", "Saras", "Parag", "Sanchi",
+    "Kwality", "Verka", "Sudha", "Gujarat Cooperative", "Hatsun"
+]
 
 # ------------------------------------------------------
 # Load full history
@@ -42,9 +48,13 @@ def compute_supplier_analytics(df, latest):
     supplier_id = latest["supplier_id"]
     supplier_df = df[df["supplier_id"] == supplier_id]
 
+    # Add random supplier name
+    supplier_name = random.choice(INDIAN_MILK_BRANDS)
+
     if supplier_df.empty:
         return {
             "supplier_id": supplier_id,
+            "supplier_name": supplier_name,
             "avg_fat": 0,
             "avg_snf": 0,
             "avg_ts": 0,
@@ -54,6 +64,7 @@ def compute_supplier_analytics(df, latest):
 
     return {
         "supplier_id": supplier_id,
+        "supplier_name": supplier_name,
         "avg_fat": round(supplier_df["fat"].mean(), 3),
         "avg_snf": round(supplier_df["snf"].mean(), 3),
         "avg_ts": round(supplier_df["ts"].mean(), 3),

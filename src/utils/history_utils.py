@@ -8,7 +8,7 @@ import psycopg2
 HISTORY_FILE = "data/history.csv"
 
 # ======================================================
-# PostgreSQL CONNECTION DETAILS
+# PostgreSQL CONNECTION SETTINGS
 # ======================================================
 PG_CONFIG = {
     "host": "kdnai-partnersquad-psql-dev-eastus2.postgres.database.azure.com",
@@ -19,9 +19,22 @@ PG_CONFIG = {
     "sslmode": "require"
 }
 
+# ======================================================
+# Convert NumPy → Python native types
+# ======================================================
+def _to_native(v):
+    """Ensures clean values before DB insert."""
+    if isinstance(v, (np.float32, np.float64)):
+        return float(v)
+    if isinstance(v, (np.int32, np.int64)):
+        return int(v)
+    if isinstance(v, (np.bool_)):
+        return bool(v)
+    return v
+
 
 # ======================================================
-# Create PG connection
+# PG CONNECTION
 # ======================================================
 def _get_pg_conn():
     try:
@@ -33,12 +46,12 @@ def _get_pg_conn():
 
 
 # ======================================================
-# Save history row to PostgreSQL
+# SAVE TO DATABASE
 # ======================================================
 def _save_history_to_db(entry):
     conn = _get_pg_conn()
     if not conn:
-        print("⚠️ Skipping DB insert (no connection)")
+        print("⚠️ Skipping DB insert (no DB connection)")
         return
 
     try:
@@ -80,19 +93,22 @@ def _save_history_to_db(entry):
             )
             conn.commit()
 
+            print("✔️ History row inserted into PostgreSQL")
+
     except Exception as e:
         print("❌ Failed inserting history row into DB:", e)
+
     finally:
         conn.close()
 
 
 # ======================================================
-# Ensure CSV exists
+# CSV FILE MANAGEMENT
 # ======================================================
 def _ensure_history_exists():
-    dir_name = os.path.dirname(HISTORY_FILE)
-    if dir_name and not os.path.exists(dir_name):
-        os.makedirs(dir_name, exist_ok=True)
+    folder = os.path.dirname(HISTORY_FILE)
+    if folder and not os.path.exists(folder):
+        os.makedirs(folder, exist_ok=True)
 
     if (not os.path.exists(HISTORY_FILE)) or os.path.getsize(HISTORY_FILE) == 0:
         _create_empty_history()
@@ -105,6 +121,7 @@ def _ensure_history_exists():
 
 
 def _create_empty_history():
+    """Initializes a clean CSV with all required columns."""
     df = pd.DataFrame(columns=[
         "entry_id", "timestamp", "sample_id",
         "supplier_id", "route_id", "collection_center",
@@ -125,9 +142,6 @@ def _create_empty_history():
     df.to_csv(HISTORY_FILE, index=False)
 
 
-# ======================================================
-# CSV loader
-# ======================================================
 def load_history_df():
     _ensure_history_exists()
     try:
@@ -138,7 +152,7 @@ def load_history_df():
 
 
 # ======================================================
-# Computing sample score
+# METRICS CALCULATIONS
 # ======================================================
 def compute_sample_score(fat, snf, ts, adulteration_risk):
     if None in (fat, snf, ts, adulteration_risk):
@@ -154,9 +168,6 @@ def compute_sample_score(fat, snf, ts, adulteration_risk):
     return round(score, 2)
 
 
-# ======================================================
-# Supplier metrics
-# ======================================================
 def compute_supplier_metrics(df_supplier):
     if df_supplier.empty:
         return (0, 0, 0, 0, 1)
@@ -181,9 +192,6 @@ def compute_supplier_metrics(df_supplier):
     )
 
 
-# ======================================================
-# Route + Batch + Global metrics
-# ======================================================
 def compute_route_score(df_route):
     return round(df_route["sample_score"].mean(), 2) if not df_route.empty else 0
 
@@ -202,7 +210,7 @@ def compute_global_quality_index(df):
 
 
 # ======================================================
-# MAIN: append_sample (writes CSV + DB)
+# MAIN — APPEND HISTORY ENTRY (CSV + DB)
 # ======================================================
 def append_sample(payload):
     _ensure_history_exists()
@@ -253,7 +261,7 @@ def append_sample(payload):
         "snf": snf,
 
         "adulteration_risk": adulteration_risk,
-        "is_adulterated": is_adulterated,
+        "is_adulterated": bool(is_adulterated),
         "price": final_price,
 
         "batch_id": batch_id,
@@ -266,18 +274,20 @@ def append_sample(payload):
         "supplier_persistence": supplier_persistence,
 
         "route_score": route_score,
-
         "batch_avg_score": batch_avg_score,
         "batch_adulteration_freq": batch_adulteration_freq,
 
         "global_quality_index": global_quality_index,
     }
 
-    # Save to CSV
-    df = pd.concat([df, pd.DataFrame([entry])], ignore_index=True)
+    # Convert to native Python types for DB safety
+    entry_native = {k: _to_native(v) for k, v in entry.items()}
+
+    # Save CSV
+    df = pd.concat([df, pd.DataFrame([entry_native])], ignore_index=True)
     df.to_csv(HISTORY_FILE, index=False)
 
-    # Save to PostgreSQL
-    _save_history_to_db(entry)
+    # Save PostgreSQL
+    _save_history_to_db(entry_native)
 
-    return entry
+    return entry_native

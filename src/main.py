@@ -16,6 +16,7 @@ from src.routers.analytics import router as analytics_router
 from src.routers.full import router as full_router
 from src.routers.milk_type import router as milk_type_router
 from src.routers.alert import router as alert_router
+from src.routers.recommendation import router as recommendation_router
 
 # --- services ---
 from src.services.shap_service import (
@@ -213,6 +214,9 @@ def on_message(client, userdata, msg):
         from src.services.alert_service import run_alert_engine
         alerts_triggered = run_alert_engine(payload)
 
+        # Attach alerts into the payload before sending it
+        payload["alerts"] = alerts_triggered or []
+
         if alerts_triggered:
             print(f"⚠️ Alerts triggered: {len(alerts_triggered)}")
         else:
@@ -220,7 +224,19 @@ def on_message(client, userdata, msg):
 
     except Exception as e:
         print("⚠️ Alert engine failed:", e)
+        payload["alerts"] = ["alert_engine_failed"]
 
+
+    # =============================================================
+    # RECOMMENDATION ENGINE — ALWAYS RUNS (alert or no alert)
+    # =============================================================
+    try:
+        from src.services.recommendation_service import run_recommendation_engine
+        recos = run_recommendation_engine(payload, alerts_triggered)
+        payload["recommendations"] = recos
+        print("🧠 Recommendations generated")
+    except Exception as e:
+        print("⚠️ Recommendation engine failed:", e)
 
 
     # =============================================================
@@ -315,6 +331,7 @@ app.include_router(analytics_router)
 app.include_router(full_router)
 app.include_router(milk_type_router)
 app.include_router(alert_router)
+app.include_router(recommendation_router)
 
 
 # ===================================================================

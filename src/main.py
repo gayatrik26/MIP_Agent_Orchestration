@@ -17,11 +17,12 @@ from src.routers.full import router as full_router
 from src.routers.milk_type import router as milk_type_router
 from src.routers.alert import router as alert_router
 from src.routers.recommendation import router as recommendation_router
+from src.routers.report import router as report_router
 
 # --- services ---
 from src.services.shap_service import (
     compute_shap_summary,
-    compute_adulteration_shap      # <-- NEW
+    compute_adulteration_shap
 )
 from src.services.risk_service import compute_traffic_cards, recompute_adulteration_risk
 from src.services.price_service import calculate_price
@@ -270,11 +271,11 @@ def on_message(client, userdata, msg):
             if res.get("ok"):
                 app.last_pushed_sample_id = sample_id
                 app.last_push_timestamp = datetime.datetime.now().isoformat()
-                print(f"✔️ POST successful (status={res.get('status_code')})")
+                print(f"✔️ POST successful")
             else:
-                print(f"❌ POST failed: {res}")
+                print(f"❌ POST failed:", res)
         else:
-            print(f"ℹ️ sample_id unchanged ({sample_id}) — skipping POST")
+            print(f"ℹ️ Same sample — skipping POST")
     else:
         print("⚠️ Full payload is None — skipping POST")
 
@@ -332,6 +333,7 @@ app.include_router(full_router)
 app.include_router(milk_type_router)
 app.include_router(alert_router)
 app.include_router(recommendation_router)
+app.include_router(report_router)
 
 
 # ===================================================================

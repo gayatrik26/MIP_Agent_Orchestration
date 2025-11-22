@@ -1,6 +1,8 @@
 import pandas as pd
 from src.utils.history_utils import HISTORY_FILE
 import random
+import uuid
+from src.utils.history_utils import load_history_df
 
 INDIAN_MILK_BRANDS = [
     "Amul", "Nandini", "Aavin", "Mother Dairy", "Gokul", "Warana", 
@@ -185,18 +187,61 @@ def compute_global_analytics(df):
 # ------------------------------------------------------
 # FULL ANALYTICS (used by /full)
 # ------------------------------------------------------
-def compute_full_analytics():
-    df = _load_history()
-    if df is None:
-        return None
+def compute_full_analytics(payload=None):
+    # Load from PostgreSQL history, NOT CSV
+    df = load_history_df()
+    history_valid = True
 
-    latest = df.iloc[-1]     # last row
-    latest_dict = latest.to_dict()
+    required_cols = [
+        "supplier_id", "route_id", "batch_id",
+        "fat", "snf", "ts",
+        "sample_score", "adulteration_risk", "is_adulterated"
+    ]
+
+    if df is None or df.empty:
+        history_valid = False
+    else:
+        for col in required_cols:
+            if col not in df.columns:
+                history_valid = False
+                break
+
+    if history_valid:
+        latest = df.iloc[-1].to_dict()
+
+        return {
+            "sample": compute_sample_analytics(latest),
+            "supplier": compute_supplier_analytics(df, latest),
+            "route": compute_route_analytics(df, latest),
+            "batch": compute_batch_analytics(df, latest),
+            "global": compute_global_analytics(df)
+        }
+
+    # 🔥 Fallback to live payload
+    if payload is None:
+        return {
+            "sample": {},
+            "supplier": {},
+            "route": {},
+            "batch": {},
+            "global": {}
+        }
+
+    inf = payload.get("inference", {})
 
     return {
-        "sample": compute_sample_analytics(latest_dict),
-        "supplier": compute_supplier_analytics(df, latest_dict),
-        "route": compute_route_analytics(df, latest_dict),
-        "batch": compute_batch_analytics(df, latest_dict),
-        "global": compute_global_analytics(df)
+        "sample": {
+            "sample_id": payload.get("sample_id"),
+            "timestamp": payload.get("timestamp"),
+            "fat": inf.get("fat_predicted"),
+            "snf": inf.get("snf"),
+            "ts": inf.get("total_solids_predicted"),
+            "adulteration_risk": payload.get("adulteration_recomputed", {}).get("adulteration_risk_recomputed"),
+            "is_adulterated": payload.get("adulteration_recomputed", {}).get("is_adulterated_recomputed"),
+            "price": payload.get("price", {}).get("final_price")
+        },
+        "supplier": inf.get("supplier_data", {}),
+        "route": inf.get("route_data", {}),
+        "batch": inf.get("batch_data", {}),
+        "global": {"note": "insufficient history for global analytics"}
     }

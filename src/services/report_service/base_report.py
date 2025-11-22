@@ -273,7 +273,7 @@ class BaseReport:
         self.add_section_header(story, title)
 
         if img_path and os.path.exists(img_path):
-            img = Image(img_path, width=6.5 * inch, height=3.5 * inch)
+            img = Image(img_path, width=5.5 * inch, height=2.75 * inch)
             story.append(img)
         else:
             story.append(Paragraph(
@@ -282,10 +282,10 @@ class BaseReport:
             ))
 
         if description:
-            story.append(Spacer(1, 0.15 * inch))
+            story.append(Spacer(1, 0.1 * inch))
             story.append(Paragraph(description, self.styles['BodyText']))
 
-        story.append(Spacer(1, 0.35 * inch))
+        story.append(Spacer(1, 0.2 * inch))
 
     # =======================================================================
     # ADD TABLE (Premium Styling)
@@ -297,7 +297,7 @@ class BaseReport:
 
         if description:
             story.append(Paragraph(description, self.styles['BodyText']))
-            story.append(Spacer(1, 0.1 * inch))
+            story.append(Spacer(1, 0.08 * inch))
 
         table = Table(data, hAlign='LEFT')
         
@@ -306,21 +306,21 @@ class BaseReport:
             ('BACKGROUND', (0, 0), (-1, 0), KPMG_BLUE),
             ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('VALIGN', (0, 0), (-1, 0), 'MIDDLE'),
-            ('TOPPADDING', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 0), (-1, 0), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
 
             # Body rows
             ('BACKGROUND', (0, 1), (-1, -1), LIGHT_GREY),
             ('TEXTCOLOR', (0, 1), (-1, -1), DARK_GREY),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
             ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 1), (-1, -1), 'MIDDLE'),
-            ('TOPPADDING', (0, 1), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('TOPPADDING', (0, 1), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
 
             # Alternating row colors
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [LIGHT_GREY, WHITE]),
@@ -332,7 +332,7 @@ class BaseReport:
         ]))
 
         story.append(table)
-        story.append(Spacer(1, 0.35 * inch))
+        story.append(Spacer(1, 0.2 * inch))
 
     # =======================================================================
     # ADD NARRATIVE (Premium Styling)
@@ -350,7 +350,7 @@ class BaseReport:
         cleaned = cleaned.replace("\n", "<br/><br/>")
         
         story.append(Paragraph(cleaned, self.styles['BodyText']))
-        story.append(Spacer(1, 0.35 * inch))
+        story.append(Spacer(1, 0.2 * inch))
 
     # =======================================================================
     # ADD KEY METRICS BOX
@@ -398,7 +398,7 @@ class BaseReport:
         ]))
 
         story.append(metrics_table)
-        story.append(Spacer(1, 0.5 * inch))
+        story.append(Spacer(1, 0.3 * inch))
 
     # =======================================================================
     # CLEAN TEXT FOR PDF

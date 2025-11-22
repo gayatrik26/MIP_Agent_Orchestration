@@ -76,39 +76,75 @@ def _clean_sample_remove_spectra(sample: dict):
 
 
 def _build_full_response(app_instance):
-    """Replicates `/full` response to send to Node backend."""
+    """
+    Build final payload:
+    - analytics = full (sample + supplier + route + batch + global)
+    - Only enrich analytics['sample'] with device_id, metadata, alerts, recos, etc.
+    - DO NOT wipe supplier/route/batch/global data.
+    """
 
-    sample = app_instance.mqtt_latest
-    if sample is None:
+    raw = app_instance.mqtt_latest
+    if raw is None:
         return None
 
-    cleaned_sample = _clean_sample_remove_spectra(sample)
+    cleaned = _clean_sample_remove_spectra(raw.copy())
+    inf = raw.get("inference", {})
+    metadata = inf.get("metadata", {})
 
-    quality = {
-        "traffic_cards": sample.get("traffic_cards"),
-        "price": sample.get("price"),
-        "adulteration_recomputed": sample.get("adulteration_recomputed"),
-    }
-
-    # shap now contains fat + ts + adulteration
-    shap = sample.get("shap", {})
-
+    # ------------------------
+    # Load full analytics (5 blocks)
+    # ------------------------
     try:
-        analytics = compute_full_analytics()
+        analytics = compute_full_analytics(raw)
     except Exception as e:
         analytics = {"error": f"failed_compute_analytics: {e}"}
 
+    if analytics is None:
+        analytics = {}
+
+    # Ensure all sections exist
+    for section in ["sample", "supplier", "route", "batch", "global"]:
+        analytics.setdefault(section, {})
+
+    sample_block = analytics["sample"]
+
+    # ------------------------
+    # Populate ONLY sample analytics
+    # ------------------------
+    sample_block["device_id"] = cleaned.get("device_id")
+    sample_block["timestamp"] = cleaned.get("timestamp")
+    sample_block["fat"] = inf.get("fat_predicted")
+    sample_block["snf"] = inf.get("snf")
+    sample_block["ts"] = inf.get("total_solids_predicted")
+    sample_block["metadata"] = metadata
+    sample_block["traffic_cards"] = cleaned.get("traffic_cards")
+    sample_block["price"] = cleaned.get("price")
+    sample_block["milk_type"] = cleaned.get("milk_type")
+    sample_block["alerts"] = cleaned.get("alerts", [])
+    sample_block["recommendations"] = cleaned.get("recommendations", {})
+
+    recomputed = cleaned.get("adulteration_recomputed", {})
+    sample_block["adulteration_risk"] = recomputed.get("adulteration_risk_recomputed")
+    sample_block["is_adulterated"] = recomputed.get("is_adulterated_recomputed")
+
+    # Remove duplicates
+    for key in [
+        "inference", "traffic_cards", "price", "milk_type",
+        "adulteration_recomputed", "alerts", "recommendations", "sample"
+    ]:
+        cleaned.pop(key, None)
+
+    shap = raw.get("shap", {})
+
     return {
-        "sample": cleaned_sample,
+        "analytics": analytics,   # now includes ALL BLOCKS
         "shap": shap,
-        "quality": quality,
-        "analytics": analytics,
         "timestamp": datetime.datetime.now().isoformat()
     }
 
 
+
 def _post_to_node(payload: dict):
-    """POST with retries."""
     headers = {"Content-Type": "application/json"}
     for attempt in range(1, POST_RETRIES + 2):
         try:
@@ -128,7 +164,7 @@ def _post_to_node(payload: dict):
 
             return {"ok": False, "status_code": resp.status_code, "text": resp.text}
 
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             if attempt <= POST_RETRIES:
                 time.sleep(0.4)
                 continue
@@ -151,7 +187,7 @@ def on_message(client, userdata, msg):
     print("\n🚀 NEW MQTT MESSAGE RECEIVED")
     print("Topic:", msg.topic)
 
-    # parse MQTT JSON
+    # Parse payload
     try:
         payload = json.loads(msg.payload.decode())
     except Exception as e:
@@ -159,15 +195,11 @@ def on_message(client, userdata, msg):
         return
 
     print("Incoming Sample (raw):", list(payload.keys())[:10], "...")
-
-    # update the in-memory sample
     app.mqtt_latest = payload
 
     # =============================================================
-    # ENRICHMENT (SHAP + risk + price)
+    # ENRICHMENT
     # =============================================================
-
-    # --- SHAP all models ---
     payload.setdefault("shap", {})
 
     try:
@@ -185,7 +217,6 @@ def on_message(client, userdata, msg):
     except Exception as e:
         payload["shap"]["adulteration_error"] = str(e)
 
-    # --- quality traffic cards ---
     try:
         payload["traffic_cards"] = compute_traffic_cards(payload)
     except Exception as e:
@@ -202,21 +233,28 @@ def on_message(client, userdata, msg):
     except Exception as e:
         payload["adulteration_recomputed_error"] = str(e)
 
-    # --- price ---
     try:
         payload["price"] = calculate_price(payload)
     except Exception as e:
         payload["price_error"] = str(e)
 
     # =============================================================
-    # ALERT ENGINE — RUN AFTER ENRICHMENT
+    # ALWAYS COMPUTE ANALYTICS SAFELY
+    # =============================================================
+    try:
+        payload["analytics"] = compute_full_analytics(payload) or {}
+    except Exception as e:
+        payload["analytics"] = {"error": f"analytics_failed: {e}"}
+
+    payload["analytics"].setdefault("sample", {})
+
+    # =============================================================
+    # ALERT ENGINE
     # =============================================================
     try:
         from src.services.alert_service import run_alert_engine
-        alerts_triggered = run_alert_engine(payload)
-
-        # Attach alerts into the payload before sending it
-        payload["alerts"] = alerts_triggered or []
+        alerts_triggered = run_alert_engine(payload) or []
+        payload["alerts"] = alerts_triggered
 
         if alerts_triggered:
             print(f"⚠️ Alerts triggered: {len(alerts_triggered)}")
@@ -224,21 +262,19 @@ def on_message(client, userdata, msg):
             print("✔️ No alerts triggered for this sample")
 
     except Exception as e:
-        print("⚠️ Alert engine failed:", e)
-        payload["alerts"] = ["alert_engine_failed"]
-
+        print("❌ ALERT ENGINE ERROR:", e)
+        alerts_triggered = []
+        payload["alerts"] = []
 
     # =============================================================
-    # RECOMMENDATION ENGINE — ALWAYS RUNS (alert or no alert)
+    # RECOMMENDATION ENGINE
     # =============================================================
     try:
         from src.services.recommendation_service import run_recommendation_engine
-        recos = run_recommendation_engine(payload, alerts_triggered)
-        payload["recommendations"] = recos
+        payload["recommendations"] = run_recommendation_engine(payload, alerts_triggered)
         print("🧠 Recommendations generated")
     except Exception as e:
         print("⚠️ Recommendation engine failed:", e)
-
 
     # =============================================================
     # SAVE TO HISTORY
@@ -266,16 +302,15 @@ def on_message(client, userdata, msg):
         if sample_id != app.last_pushed_sample_id:
             print(f"📤 Posting full payload → {NODE_URL}")
             res = _post_to_node(full_payload)
-            # print(("full payloasd:", full_payload))
 
             if res.get("ok"):
                 app.last_pushed_sample_id = sample_id
                 app.last_push_timestamp = datetime.datetime.now().isoformat()
-                print(f"✔️ POST successful")
+                print("✔️ POST successful")
             else:
-                print(f"❌ POST failed:", res)
+                print("❌ POST failed:", res)
         else:
-            print(f"ℹ️ Same sample — skipping POST")
+            print("ℹ️ Same sample — skipping POST")
     else:
         print("⚠️ Full payload is None — skipping POST")
 
@@ -305,9 +340,6 @@ def startup_event():
     client = mqtt.Client()
     client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 
-    # No TLS because port 1883 is plain MQTT
-    # client.tls_set()
-
     client.on_connect = on_connect
     client.on_message = on_message
 
@@ -318,7 +350,6 @@ def startup_event():
         print("❌ MQTT connection FAILED:", e)
 
     client.loop_start()
-
 
 
 # ===================================================================

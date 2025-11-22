@@ -143,12 +143,22 @@ def _create_empty_history():
 
 
 def load_history_df():
-    _ensure_history_exists()
+    conn = _get_pg_conn()
+    if not conn:
+        print("❌ Cannot load history from DB — no connection")
+        return None
+
     try:
-        return pd.read_csv(HISTORY_FILE)
-    except:
-        _create_empty_history()
-        return pd.read_csv(HISTORY_FILE)
+        query = "SELECT * FROM quality_history ORDER BY timestamp ASC"
+        df = pd.read_sql(query, conn)
+        conn.close()
+        if df.empty:
+            return None
+        return df
+    except Exception as e:
+        print("❌ Failed loading history from DB:", e)
+        return None
+
 
 
 # ======================================================
@@ -208,13 +218,23 @@ def compute_batch_metrics(df_batch):
 def compute_global_quality_index(df):
     return round(df["sample_score"].mean(), 2) if not df.empty else 0
 
+def get_final_adulteration(payload):
+    """Always return the recomputed adulteration values."""
+    recomputed = payload.get("adulteration_recomputed", {})
+    return (
+        recomputed.get("adulteration_risk_recomputed"),
+        recomputed.get("is_adulterated_recomputed")
+    )
+
 
 # ======================================================
 # MAIN — APPEND HISTORY ENTRY (CSV + DB)
 # ======================================================
 def append_sample(payload):
-    _ensure_history_exists()
-    df = load_history_df()
+    conn = _get_pg_conn()
+    if not conn:
+        print("❌ Cannot save history — DB unavailable")
+        return None
 
     infer = payload.get("inference", {})
     sd = infer.get("supplier_data", {})
@@ -227,25 +247,30 @@ def append_sample(payload):
     fat = infer.get("fat_predicted")
     ts = infer.get("total_solids_predicted")
     snf = infer.get("snf")
-    adulteration_risk = infer.get("adulteration_risk")
-    is_adulterated = infer.get("is_adulterated")
+
+    # 👇 Always use recomputed adulteration
+    adulteration_risk, is_adulterated = get_final_adulteration(payload)
 
     final_price = payload.get("price", {}).get("final_price")
 
-    sample_score = compute_sample_score(fat, snf, ts, adulteration_risk)
+    # Load full history from DB
+    df = load_history_df()
+    total_rows = len(df) if df is not None else 0
+    batch_id = total_rows // 20
 
-    batch_id = len(df) // 20 if len(df) else 0
-
-    df_supplier = df[df["supplier_id"] == supplier_id] if len(df) else pd.DataFrame()
+    # Supplier metrics
+    df_supplier = df[df["supplier_id"] == supplier_id] if df is not None else pd.DataFrame()
     supplier_avg_fat, supplier_avg_snf, supplier_avg_ts, supplier_stability, supplier_persistence = compute_supplier_metrics(df_supplier)
 
-    df_route = df[df["route_id"] == route_id] if len(df) else pd.DataFrame()
+    df_route = df[df["route_id"] == route_id] if df is not None else pd.DataFrame()
     route_score = compute_route_score(df_route)
 
-    df_batch = df[df["batch_id"] == batch_id] if len(df) else pd.DataFrame()
+    df_batch = df[df["batch_id"] == batch_id] if df is not None else pd.DataFrame()
     batch_avg_score, batch_adulteration_freq = compute_batch_metrics(df_batch)
 
-    global_quality_index = compute_global_quality_index(df) if len(df) else 0
+    global_quality_index = compute_global_quality_index(df) if df is not None else 0
+
+    sample_score = compute_sample_score(fat, snf, ts, adulteration_risk)
 
     entry = {
         "entry_id": str(uuid.uuid4()),
@@ -280,14 +305,10 @@ def append_sample(payload):
         "global_quality_index": global_quality_index,
     }
 
-    # Convert to native Python types for DB safety
-    entry_native = {k: _to_native(v) for k, v in entry.items()}
+    # Convert numpy → python
+    entry = {k: _to_native(v) for k, v in entry.items()}
 
-    # Save CSV
-    df = pd.concat([df, pd.DataFrame([entry_native])], ignore_index=True)
-    df.to_csv(HISTORY_FILE, index=False)
+    # Insert into DB only
+    _save_history_to_db(entry)
 
-    # Save PostgreSQL
-    _save_history_to_db(entry_native)
-
-    return entry_native
+    return entry

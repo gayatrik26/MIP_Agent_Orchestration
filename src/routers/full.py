@@ -120,7 +120,8 @@ def unified_full(request: Request):
 
         "quality": {
             "traffic_cards": risk_data,
-            "adulteration_recomputed": adulteration_calc,
+            "adulteration_risk": adulteration_calc.get("adulteration_risk_recomputed"),
+            "is_adulterated": adulteration_calc.get("is_adulterated_recomputed"),
             "price": price_data
         },
 

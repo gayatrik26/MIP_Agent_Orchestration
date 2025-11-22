@@ -119,6 +119,9 @@ def _save_alert_csv(alert):
 # ======================================================
 def _build_alert(alert_type, severity, payload, message, details=None):
 
+    # -------------------------------------------------------------
+    # Extract Supplier + Sample IDs
+    # -------------------------------------------------------------
     supplier_info = (
         payload.get("supplier_data")
         or payload.get("inference", {}).get("supplier_data")
@@ -130,6 +133,39 @@ def _build_alert(alert_type, severity, payload, message, details=None):
     supplier_id = supplier_info.get("supplier_id")
     route_id = supplier_info.get("route_id")
 
+    # -------------------------------------------------------------
+    # Extract sample-level values to ALWAYS include in alert details
+    # -------------------------------------------------------------
+    inf = payload.get("inference", {})
+
+    fat = inf.get("fat_predicted")
+    snf = inf.get("snf")
+    ts = inf.get("total_solids_predicted")
+
+    # Always use recomputed adulteration!
+    adulteration_risk, is_adulterated = get_final_adulteration(payload)
+
+    milk_type = payload.get("milk_type")
+
+    # -------------------------------------------------------------
+    # Base details always included in every alert
+    # -------------------------------------------------------------
+    base_details = {
+        "fat": fat,
+        "snf": snf,
+        "ts": ts,
+        "adulteration_risk": adulteration_risk,
+        "is_adulterated": is_adulterated,
+        "milk_type": milk_type,
+    }
+
+    # Merge custom alert details (e.g., route_score, stability)
+    if details:
+        base_details.update(details)
+
+    # -------------------------------------------------------------
+    # Build final alert object for DB
+    # -------------------------------------------------------------
     alert = {
         "type": alert_type,
         "severity": severity,
@@ -138,18 +174,25 @@ def _build_alert(alert_type, severity, payload, message, details=None):
         "sample_id": sample_id,
         "supplier_id": supplier_id,
         "route_id": route_id,
-        "details": details or {}
+        "details": base_details
     }
 
-    # Try DB → fallback to CSV
-    try:
-        insert_alert_to_db(alert)
-    except Exception as e:
-        print("⚠️ DB insert failed, saving to CSV:", e)
-        _save_alert_csv(alert)
+    # -------------------------------------------------------------
+    # Save to PostgreSQL only
+    # -------------------------------------------------------------
+    insert_alert_to_db(alert)
 
     return alert
 
+
+
+def get_final_adulteration(payload):
+    """Always return the recomputed adulteration values."""
+    recomputed = payload.get("adulteration_recomputed", {})
+    return (
+        recomputed.get("adulteration_risk_recomputed"),
+        recomputed.get("is_adulterated_recomputed")
+    )
 
 # ======================================================
 # RULE ENGINE
@@ -157,28 +200,49 @@ def _build_alert(alert_type, severity, payload, message, details=None):
 def evaluate_alert_rules(payload):
 
     alerts = []
+
+    # ============================================================
+    # FIXED: Extract sample-level values directly from INFERENCE
+    # ============================================================
     inf = payload.get("inference", {})
 
-    fat = float(inf.get("fat", 0))
-    snf = float(inf.get("snf", 0))
-    ts = float(inf.get("ts", 0))
+    fat = float(inf.get("fat_predicted") or 0)
+    snf = float(inf.get("snf") or 0)
+    ts  = float(inf.get("total_solids_predicted") or 0)
 
-    adulteration_obj = payload.get("adulteration_recomputed", {})
-    adulteration_risk = float(adulteration_obj.get("risk", 0))
-    is_adulterated = adulteration_obj.get("is_adulterated", 0)
+    # ============================================================
+    # Adulteration
+    # ============================================================
+    adulteration_risk, is_adulterated = get_final_adulteration(payload)
+    adulteration_risk = float(adulteration_risk or 0)
+    is_adulterated = int(is_adulterated or 0)
 
-    milk_type = payload.get("milk_type", "unknown")
+    # ============================================================
+    # Milk type (flatten dict)
+    # ============================================================
+    milk_raw = payload.get("milk_type")
 
+    if isinstance(milk_raw, dict):
+        milk_type = milk_raw.get("milk_type")
+    else:
+        milk_type = milk_raw
+
+    # ============================================================
+    # Analytics
+    # ============================================================
     supplier_stats = payload.get("analytics", {}).get("supplier", {})
-    route_stats = payload.get("analytics", {}).get("route", {})
-    batch_stats = payload.get("analytics", {}).get("batch", {})
+    route_stats    = payload.get("analytics", {}).get("route", {})
+    batch_stats    = payload.get("analytics", {}).get("batch", {})
 
-    stability = float(supplier_stats.get("stability", 0))
-    persistence = float(supplier_stats.get("persistence", 0))
-    route_score = float(route_stats.get("route_score", 0))
+    stability   = float(supplier_stats.get("stability", 1))
+    persistence = float(supplier_stats.get("persistence", 1))
+    route_score = float(route_stats.get("route_score", 100))
     batch_adult_freq = float(batch_stats.get("adulteration_freq", 0))
 
-    # 1. Critical adulteration
+    # ============================================================
+    # RULES
+    # ============================================================
+
     if adulteration_risk > 80 or is_adulterated == 1:
         alerts.append(_build_alert(
             "CRITICAL_ADULTERATION",
@@ -188,7 +252,6 @@ def evaluate_alert_rules(payload):
             {"adulteration_risk": adulteration_risk}
         ))
 
-    # 2. Low fat
     if fat < 2.5:
         alerts.append(_build_alert(
             "LOW_FAT",
@@ -198,7 +261,6 @@ def evaluate_alert_rules(payload):
             {"fat": fat}
         ))
 
-    # 3. Low SNF
     if snf < 8.0:
         alerts.append(_build_alert(
             "LOW_SNF",
@@ -208,7 +270,6 @@ def evaluate_alert_rules(payload):
             {"snf": snf}
         ))
 
-    # 4. Low TS
     if ts < 11.5:
         alerts.append(_build_alert(
             "LOW_TS",
@@ -218,7 +279,6 @@ def evaluate_alert_rules(payload):
             {"ts": ts}
         ))
 
-    # 5. Supplier stability
     if stability < 0.5:
         alerts.append(_build_alert(
             "SUPPLIER_STABILITY_DROP",
@@ -228,7 +288,6 @@ def evaluate_alert_rules(payload):
             {"stability": stability}
         ))
 
-    # 6. Supplier persistence
     if persistence < 0.4:
         alerts.append(_build_alert(
             "SUPPLIER_PERSISTENCE_LOW",
@@ -238,7 +297,6 @@ def evaluate_alert_rules(payload):
             {"persistence": persistence}
         ))
 
-    # 7. Route score
     if route_score < 60:
         alerts.append(_build_alert(
             "ROUTE_QUALITY_LOW",
@@ -248,7 +306,6 @@ def evaluate_alert_rules(payload):
             {"route_score": route_score}
         ))
 
-    # 8. Batch adulteration frequency
     if batch_adult_freq > 30:
         alerts.append(_build_alert(
             "HIGH_BATCH_ADULTERATION_RATE",
@@ -258,8 +315,7 @@ def evaluate_alert_rules(payload):
             {"batch_adulteration_freq": batch_adult_freq}
         ))
 
-    # 9. Milk type mismatch
-    if milk_type not in ["cow", "buffalo", "mixed"]:
+    if milk_type not in ["cow", "buffalo", "mixed", "camel", "goat"]:
         alerts.append(_build_alert(
             "MILK_TYPE_UNKNOWN",
             "low",

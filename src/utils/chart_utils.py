@@ -149,3 +149,64 @@ def generate_supplier_adulteration_bar(df_suppliers, filename="supplier_adultera
     plt.close()
 
     return file_path
+
+def generate_adulteration_trend_chart(df, filename="monthly_adulteration_trend.png"):
+    df2 = (
+        df.groupby(df["timestamp"].dt.date)["is_adulterated"]
+          .mean()
+          .mul(100)
+          .reset_index()
+    )
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(df2["timestamp"], df2["is_adulterated"])
+    plt.title("Daily Adulteration Trend (%)")
+    plt.xlabel("Date")
+    plt.ylabel("Adulteration (%)")
+    plt.xticks(rotation=45)
+
+    path = os.path.join(BASE_DIR, filename)
+    plt.tight_layout()
+    plt.savefig(path, dpi=150)
+    plt.close()
+    return path
+
+
+def generate_adulteration_supplier_bar(df, filename="supplier_adulteration_rate.png"):
+    sup = (
+        df.groupby("supplier_id")["is_adulterated"]
+        .mean().mul(100).reset_index()
+        .sort_values("is_adulterated", ascending=False)
+    )
+
+    plt.figure(figsize=(12, 5))
+    plt.bar(sup["supplier_id"], sup["is_adulterated"])
+    plt.xticks(rotation=45, ha="right")
+    plt.ylabel("Adulteration (%)")
+    plt.title("Adulteration by Supplier (30 days)")
+
+    path = os.path.join(BASE_DIR, filename)
+    plt.tight_layout()
+    plt.savefig(path, dpi=150)
+    plt.close()
+    return path
+
+
+def generate_adulteration_route_bar(df, filename="route_adulteration_rate.png"):
+    rt = (
+        df.groupby("route_id")["is_adulterated"]
+        .mean().mul(100).reset_index()
+        .sort_values("is_adulterated", ascending=False)
+    )
+
+    plt.figure(figsize=(12, 5))
+    plt.bar(rt["route_id"], rt["is_adulterated"])
+    plt.xticks(rotation=45, ha="right")
+    plt.ylabel("Adulteration (%)")
+    plt.title("Adulteration by Route (30 days)")
+
+    path = os.path.join(BASE_DIR, filename)
+    plt.tight_layout()
+    plt.savefig(path, dpi=150)
+    plt.close()
+    return path

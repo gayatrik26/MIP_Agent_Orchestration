@@ -3,6 +3,7 @@ from src.services.report_service.daily_report import DailyQualityReport
 from src.services.report_service.weekly_trends_report import WeeklyCompositionReport
 from src.services.report_service.route_performance_report import RoutePerformanceReport
 from src.services.report_service.supplier_scorecard_report import SupplierScorecardReport
+from src.services.report_service.monthly_adulteration_report import MonthlyAdulterationReport
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -62,6 +63,18 @@ def generate_supplier_scorecard_report():
             headers={
                 "Content-Disposition": 'attachment; filename="supplier_scorecard_report.pdf"'
             },
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+@router.get("/monthly/adulteration")
+def generate_monthly_report():
+    try:
+        pdf_buffer = MonthlyAdulterationReport().build()
+        return Response(
+            content=pdf_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="monthly_adulteration_report.pdf"'}
         )
     except Exception as e:
         return {"error": str(e)}

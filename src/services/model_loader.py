@@ -1,50 +1,11 @@
-# # services/model_loader.py
-# import joblib
-# import os
-
-# BASE_DIR = os.getcwd()  # change if needed
-
-# PLSR_FAT_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/fastAPI/src/model/plsr_fat_model.pkl"
-# PLSR_TS_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/fastAPI/src/model/plsr_total_solids_model.pkl"
-# ISO_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/fastAPI/src/model/adulteration_isolation_forest.pkl"
-
-# class ModelBundle:
-#     def __init__(self):
-#         self.pls_fat = None
-#         self.pls_ts = None
-#         self.iso = None
-#         self._load_models()
-
-#     def _load_models(self):
-#         if os.path.exists(PLSR_FAT_PATH):
-#             fat_bundle = joblib.load(PLSR_FAT_PATH)
-#             self.pls_fat = fat_bundle  # dict with 'pls_model', 'spectral_cols', 'window'...
-#         else:
-#             raise FileNotFoundError(f"{PLSR_FAT_PATH} not found")
-
-#         if os.path.exists(PLSR_TS_PATH):
-#             ts_bundle = joblib.load(PLSR_TS_PATH)
-#             self.pls_ts = ts_bundle
-#         else:
-#             raise FileNotFoundError(f"{PLSR_TS_PATH} not found")
-
-#         if os.path.exists(ISO_PATH):
-#             iso_bundle = joblib.load(ISO_PATH)
-#             self.iso = iso_bundle
-#         else:
-#             # optional: not fatal if you plan to use mqtt-provided adulteration risk
-#             self.iso = None
-
-# models = ModelBundle()
-
 import numpy as np
 from scipy.signal import savgol_filter
 import joblib
 import os
 
-PLSR_FAT_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/fastAPI/src/model/plsr_fat_model.pkl"
-PLSR_TS_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/fastAPI/src/model/plsr_total_solids_model.pkl"
-ISO_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/fastAPI/src/model/adulteration_isolation_forest.pkl"
+PLSR_FAT_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/MIP/fastAPI/src/model/plsr_fat_model.pkl"
+PLSR_TS_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/MIP/fastAPI/src/model/plsr_total_solids_model.pkl"
+ISO_PATH = "/Users/kdn_aigayatrikadam/Documents/Projects/patners-squad/MIP/fastAPI/src/model/adulteration_isolation_forest.pkl"
 
 
 # ------------------------------------------------------

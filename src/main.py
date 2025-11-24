@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, Request
 import json
 import paho.mqtt.client as mqtt

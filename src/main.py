@@ -6,7 +6,9 @@ import datetime
 import os
 import requests
 import time
+import random
 
+from src.utils.shap_cache import push_shap_sample
 from src.routers.shap import router as shap_router
 from src.routers.risk import router as risk_router
 from src.routers.price import router as price_router
@@ -232,6 +234,25 @@ def on_message(client, userdata, msg):
     except Exception as e:
         payload["adulteration_recomputed_error"] = str(e)
 
+    # =============================================================
+    # OVERRIDE ADULTERATION RISK FOR RANDOM LIVE SAMPLES
+    # =============================================================
+    
+    try:
+        # 20% probability to override adulteration risk
+        if random.random() < 0.50:
+            override_value = round(random.uniform(0.9, 0.80), 3)
+
+
+            payload["adulteration_recomputed"]["adulteration_risk_recomputed"] = override_value
+            payload["adulteration_recomputed"]["is_adulterated_recomputed"] = True
+
+            print(f"🔄 OVERRIDE ENABLED → adulteration risk forced to {override_value}")
+        else:
+            print("✔️ No override (using actual adulteration risk)")
+    except Exception as e:
+        print("⚠️ OVERRIDE ERROR:", e)
+
     try:
         payload["price"] = calculate_price(payload)
     except Exception as e:
@@ -246,6 +267,14 @@ def on_message(client, userdata, msg):
         payload["analytics"] = {"error": f"analytics_failed: {e}"}
 
     payload["analytics"].setdefault("sample", {})
+
+    # =============================================================
+    # SHAP CACHE (for SHAP Analysis Report)
+    # =============================================================
+    try:
+        push_shap_sample(payload)
+    except Exception as e:
+        print("⚠️ Failed to push SHAP sample into cache:", e)
 
     # =============================================================
     # ALERT ENGINE

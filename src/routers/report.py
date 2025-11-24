@@ -4,6 +4,7 @@ from src.services.report_service.weekly_trends_report import WeeklyCompositionRe
 from src.services.report_service.route_performance_report import RoutePerformanceReport
 from src.services.report_service.supplier_scorecard_report import SupplierScorecardReport
 from src.services.report_service.monthly_adulteration_report import MonthlyAdulterationReport
+from src.services.report_service.shap_analysis_report import ShapAnalysisReport
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -75,6 +76,20 @@ def generate_monthly_report():
             content=pdf_buffer.getvalue(),
             media_type="application/pdf",
             headers={"Content-Disposition": 'attachment; filename="monthly_adulteration_report.pdf"'}
+        )
+    except Exception as e:
+        return {"error": str(e)}
+    
+@router.get("/shap")
+def generate_shap_report():
+    try:
+        pdf_buffer = ShapAnalysisReport().build()
+        return Response(
+            content=pdf_buffer.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="shap_analysis_report.pdf"'
+            }
         )
     except Exception as e:
         return {"error": str(e)}

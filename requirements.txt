@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+azure-functions
+azure-functions-fastapi
+pydantic
+requests
+paho-mqtt
+python-dotenv

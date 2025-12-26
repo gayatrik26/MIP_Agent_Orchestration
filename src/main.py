@@ -240,9 +240,8 @@ def on_message(client, userdata, msg):
     
     try:
         # 20% probability to override adulteration risk
-        if random.random() < 0.50:
-            override_value = round(random.uniform(0.9, 0.80), 3)
-
+        if random.random() < 0.30:
+            override_value = round(random.uniform(0.20, 0.60), 3)
 
             payload["adulteration_recomputed"]["adulteration_risk_recomputed"] = override_value
             payload["adulteration_recomputed"]["is_adulterated_recomputed"] = True

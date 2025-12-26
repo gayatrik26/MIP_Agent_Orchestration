@@ -10,6 +10,8 @@ The **Milk Intelligence Platform (MIP)** is a production-grade, end-to-end AI sy
 
 MIP operates continuously (24×7) and transforms raw sensor data into **actionable intelligence** for dairy operations, quality assurance teams, and management dashboards.
 
+<img width="1435" height="604" alt="Image" src="https://github.com/user-attachments/assets/50f7494a-a63d-4b65-81c5-1da265acd438" />
+
 ### What This Platform Automates
 
 - Real-time milk quality scanning  
@@ -215,3 +217,4 @@ After processing each sample:
 ✅ Production-ready core pipeline  
 📊 Dashboard & reporting integrated  
 🤖 LLM-powered intelligence enabled  
+
